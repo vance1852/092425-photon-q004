@@ -57,14 +57,22 @@ PYTHONPATH=src python3 -m plant_science.acceptance --workspace .
 
 ## 光电芯片研发协同服务
 
-`src/photon_fab/` 提供光电芯片批次、光谱测量、科学计算、质量审批和审计的离线后台。SQLite 保存完整批次生命周期，角色权限覆盖操作员、工程师、质量人员和管理员；峰值波长、噪声 RMS、响应度、置信区间及良率计算均为确定性本地算法。
+`src/photon_fab/` 提供光电芯片批次、工艺版本、光谱测量、科学计算、质量审批和审计的离线后台。SQLite 保存完整批次生命周期，角色权限覆盖操作员、工程师、质量人员和管理员；峰值波长、噪声 RMS、响应度、置信区间及良率计算均为确定性本地算法。
+
+工艺版本管理支持同一产品多工艺并行试产（如 P3.2 与 P3.3）：
+
+- 登记工艺版本时校验完整参数集（温度、腔体压力、时长、气体流量、目标波长），非法取值返回 `validation_failed`；
+- 版本先冻结再绑定批次；已冻结或已绑定批次的版本不可原地修改，派生新版本必须记录父版本和变更原因，历史快照发布后仍可读取；
+- 查询批次返回从绑定版本到根版本的完整追溯链（含各版本参数快照与变更原因）；
+- 写接口通过 `Idempotency-Key` 请求头（或请求体 `idempotency_key` 字段）支持重复提交幂等，同键不同内容返回 `conflict`；
+- 非法状态转换（重复冻结、绑定未冻结版本、重复绑定等）返回稳定的 `invalid_state` 错误码。
 
 ```bash
 PYTHONPATH=src python3 -m photon_fab.acceptance
 PYTHONPATH=src python3 -m photon_fab.api --database photon.sqlite3 --port 8080
 ```
 
-HTTP 健康检查为 `GET /health`，登录、批次、测量和分析请求均支持 JSON；服务不访问外部网络，可在单个 Linux 应用容器中完成验收。
+HTTP 健康检查为 `GET /health`，登录、工艺版本、批次、测量和分析请求均支持 JSON。工艺版本接口包括 `POST /process-versions`、`POST /process-versions/{id}/params`、`POST /process-versions/{id}/freeze`、`GET /process-versions/{id}/chain`、`POST /lots/{id}/process-version`；错误响应统一为 `{"error": {"code", "message"}}`，状态码与错误码稳定对应（`not_found` 404、`forbidden` 403、`conflict`/`invalid_state` 409、`validation_failed` 422）。服务不访问外部网络，可在单个 Linux 应用容器中完成验收。
 
 ## HTTP 服务
 
